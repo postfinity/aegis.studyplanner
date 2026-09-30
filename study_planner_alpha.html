@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aegis - Study Planner</title>
+<style>
+  :root{
+    --paper:#e9e6dd; --card:#f4f2ea; --ink:#2e3b32; --ink-soft:#5c6a5e;
+    --moss:#3f5a48; --moss-deep:#29402f; --coral:#bf5b3f;
+    --charcoal:#33373a; --gutter:#a39f90;
+    --mono: ui-monospace, 'JetBrains Mono', 'Source Code Pro', 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; padding:28px 18px 60px; background:var(--paper); color:var(--ink); font-family:var(--mono); }
+  .wrap{ max-width:760px; margin:0 auto; }
+
+  header{ display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px;
+          border-bottom:2px solid var(--ink); padding-bottom:12px; }
+  h1{ margin:0; font-size:26px; font-weight:600; }
+  .sub{ font-size:12px; color:var(--ink-soft); margin-top:4px; }
+  .count{ font-size:14px; font-weight:700; color:var(--moss-deep); text-align:right; }
+
+  nav{ display:flex; gap:6px; margin:18px 0; overflow-x:auto; }
+  nav button{ font:inherit; font-size:12.5px; padding:7px 13px; cursor:pointer; white-space:nowrap;
+              background:transparent; color:var(--ink); border:1.5px solid var(--ink); border-radius:3px; }
+  nav button.active{ background:var(--moss-deep); color:var(--card); border-color:var(--moss-deep); }
+
+  .day-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
+  .day-head h2{ margin:0; font-size:18px; font-weight:600; }
+  .metric{ color:var(--charcoal); font-size:13px; }
+
+  .block{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--card);
+          border:1px solid var(--ink); border-left:5px solid var(--moss); border-radius:2px;
+          padding:9px 12px; margin-bottom:8px; }
+  .block.done{ opacity:.55; }
+  .block.done .label{ text-decoration:line-through; }
+  .ln{ width:22px; color:var(--gutter); font-size:12px; }
+  .label{ flex:1; min-width:140px; font:inherit; font-size:13px; border:none; border-bottom:1px dashed var(--ink-soft); background:transparent; padding:3px 2px; }
+  input[type=time]{ font:inherit; font-size:12px; border:1px solid var(--ink-soft); border-radius:3px; padding:3px 5px; background:#fff; }
+  .dur{ font-size:12px; color:var(--charcoal); min-width:64px; text-align:right; }
+  .x{ background:none; border:none; color:var(--ink-soft); font-size:17px; cursor:pointer; line-height:1; }
+  .x:hover{ color:var(--coral); }
+
+  .actions{ display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+  .actions button{ font:inherit; font-size:12.5px; padding:8px 14px; border-radius:3px; cursor:pointer;
+                   background:var(--card); color:var(--ink); border:1px solid var(--ink); }
+  .actions .reset{ border:none; background:none; color:var(--ink-soft); text-decoration:underline; padding:8px 0; }
+  .actions .reset:hover{ color:var(--coral); }
+
+  .timer{ display:inline-flex; align-items:center; gap:8px; margin-top:18px; padding:6px 12px;
+          border:1px solid var(--ink); border-radius:20px; background:var(--card); font-size:13px; }
+  .timer button{ font:inherit; border:none; background:none; cursor:pointer; color:var(--moss-deep); font-size:14px; }
+  .timer input{ width:48px; font:inherit; font-size:12px; border:1px solid var(--ink-soft); border-radius:3px; padding:2px 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Aegis - Study Planner</h1>
+      <div class="sub">english · math · science <span>v0.1.0-alpha</span></div>
+    </div>
+    <div class="count" id="count">[0 / 0 done]</div>
+  </header>
+
+  <nav id="days"></nav>
+  <div id="panel"></div>
+
+  <div class="timer">
+    <button id="t-toggle" aria-label="Start or pause timer">&#9654;</button>
+    <span id="t-time">25:00</span>
+    <input type="number" id="t-min" min="1" max="240" value="25" aria-label="Timer minutes"> min
+    <button id="t-reset" aria-label="Reset timer">&#8634;</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const KEY = 'aegis-planner-barebones';
+  let uid = Date.now();
+
+  const defaultBlocks = () => [
+    { id: uid++, label: 'English', start: '16:00', end: '16:45', done: false },
+    { id: uid++, label: 'Math',    start: '17:00', end: '17:45', done: false },
+    { id: uid++, label: 'Science', start: '18:00', end: '18:45', done: false }
+  ];
+
+  let state = load();
+  let current = DAYS[(new Date().getDay() + 6) % 7];
+
+  function load(){
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY));
+      if (s && s.days) return s;
+    } catch(e){}
+    const days = {};
+    DAYS.forEach(d => days[d] = defaultBlocks());
+    return { days };
+  }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }
+
+  const toMins = t => { const [h, m] = (t || '0:0').split(':').map(Number); return h * 60 + m; };
+  const fmt = m => { m = Math.max(0, m); const h = Math.floor(m / 60), r = m % 60; return (h ? h + 'h ' : '') + r + 'm'; };
+  const dur = b => Math.max(0, toMins(b.end) - toMins(b.start));
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  const nav = document.getElementById('days');
+  const panel = document.getElementById('panel');
+  const countEl = document.getElementById('count');
+
+  function render(){
+    nav.innerHTML = DAYS.map(d => `<button data-day="${d}" class="${d === current ? 'active' : ''}">${d}</button>`).join('');
+
+    const blocks = state.days[current];
+    const total = blocks.reduce((s, b) => s + dur(b), 0);
+    panel.innerHTML = `
+      <div class="day-head"><h2>${current}</h2><span class="metric">Math.log(${fmt(total)});</span></div>
+      ${blocks.map((b, i) => `
+        <div class="block ${b.done ? 'done' : ''}" data-id="${b.id}">
+          <span class="ln">${String(i + 1).padStart(2, '0')}</span>
+          <input type="checkbox" data-f="done" ${b.done ? 'checked' : ''}>
+          <input class="label" data-f="label" value="${esc(b.label)}" placeholder="Block name">
+          <input type="time" data-f="start" value="${b.start}">
+          <input type="time" data-f="end" value="${b.end}">
+          <span class="dur">[${fmt(dur(b))}]</span>
+          <button class="x" data-act="del" title="Remove">&times;</button>
+        </div>`).join('')}
+      <div class="actions">
+        <button id="add">+ Add block</button>
+        <button class="reset" id="reset">Reset day</button>
+      </div>`;
+    updateCount();
+  }
+
+  function updateCount(){
+    let done = 0, all = 0;
+    DAYS.forEach(d => state.days[d].forEach(b => { all++; if (b.done) done++; }));
+    countEl.textContent = `[${done} / ${all} done]`;
+  }
+
+  nav.addEventListener('click', e => {
+    const d = e.target.dataset.day;
+    if (d) { current = d; render(); }
+  });
+
+  panel.addEventListener('input', e => {
+    const row = e.target.closest('.block');
+    if (!row) return;
+    const b = state.days[current].find(x => x.id === Number(row.dataset.id));
+    const f = e.target.dataset.f;
+    if (!b || !f) return;
+    b[f] = f === 'done' ? e.target.checked : e.target.value;
+    save();
+    if (f !== 'label') render();   // label edits skip re-render so typing keeps focus
+    else updateCount();
+  });
+
+  panel.addEventListener('click', e => {
+    if (e.target.id === 'add') {
+      state.days[current].push({ id: uid++, label: '', start: '19:00', end: '19:30', done: false });
+      save(); render();
+    } else if (e.target.id === 'reset') {
+      state.days[current] = defaultBlocks();
+      save(); render();
+    } else if (e.target.dataset.act === 'del') {
+      const id = Number(e.target.closest('.block').dataset.id);
+      state.days[current] = state.days[current].filter(x => x.id !== id);
+      save(); render();
+    }
+  });
+
+  /* ---- Focus timer ---- */
+  const tTime = document.getElementById('t-time');
+  const tToggle = document.getElementById('t-toggle');
+  const tMin = document.getElementById('t-min');
+  let left = 25 * 60, running = false, handle = null;
+
+  const drawTimer = () => {
+    tTime.textContent = String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0');
+    tToggle.innerHTML = running ? '&#10074;&#10074;' : '&#9654;';
+  };
+  const stopTimer = () => { running = false; clearInterval(handle); drawTimer(); };
+  const startTimer = () => {
+    if (left <= 0) left = Number(tMin.value) * 60;
+    running = true;
+    handle = setInterval(() => { left--; if (left <= 0) { left = 0; stopTimer(); } drawTimer(); }, 1000);
+    drawTimer();
+  };
+  tToggle.addEventListener('click', () => running ? stopTimer() : startTimer());
+  document.getElementById('t-reset').addEventListener('click', () => { stopTimer(); left = Number(tMin.value) * 60; drawTimer(); });
+  tMin.addEventListener('change', () => {
+    const v = Math.min(240, Math.max(1, Math.round(Number(tMin.value) || 25)));
+    tMin.value = v;
+    if (!running) { left = v * 60; drawTimer(); }
+  });
+
+  render();
+  drawTimer();
+})();
+</script>
+</body>
+</html>

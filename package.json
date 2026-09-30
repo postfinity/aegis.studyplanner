@@ -1,0 +1,27 @@
+{
+  "name": "study-planner",
+  "productName": "Aegis",
+  "version": "1.0.0",
+  "description": "Weekly study log and planner",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.studyplanner.app",
+    "productName": "Aegis",
+    "files": [
+      "main.js",
+      "study_planner.html"
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "target": "dmg"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.5.0",
+    "electron-builder": "^26.15.3"
+  }
+}
